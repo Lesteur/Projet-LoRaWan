@@ -19,7 +19,7 @@
 
    1. Aller dans **Croquis > Inclure une bibliothèque > Gérer les bibliothèques**.
    2. Chercher et installer la bibliothèque pour le LoRaWAN : **SX126x-Arduino**.
-   3. Chercher et installer la bibliothèque pour ton capteur de température. Si tu utilises le module standard RAK1901, cherche **SparkFun SHTC3 Humidity and Temperature Sensor**.
+   3. Chercher et installer la bibliothèque pour le capteur de température : **SparkFun SHTC3 Humidity and Temperature Sensor**.
 
 ## Configuration de HeyloT Console
 
