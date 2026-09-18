@@ -1,247 +1,175 @@
-#include <lmic.h>
-#include <hal/hal.h>
+#include <Arduino.h>
+#include <LoRaWan-RAK4630.h> // Library for LoRaWAN (adjust if using a different core)
 #include <SPI.h>
+#include <Wire.h>
+#include "SparkFun_SHTC3.h"  // Library for the RAK1901 temperature sensor
 
-// ============================================================
-// LoRaWAN OTAA credentials
-// ============================================================
-//
-// IMPORTANT:
-// Never publish your AppKey.
-// These values must correspond to the device registered
-// in your LoRaWAN network/server.
+SHTC3 mySHTC3; // Create an instance of the sensor
 
-// ============================================================
+// =======================================================================
+// LORAWAN CONFIGURATION
+// You MUST replace these arrays with the keys from your HeyIoT Console!
+// The format is MSB (Most Significant Bit first).
+// =======================================================================
+uint8_t nodeDeviceEUI[8] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+uint8_t nodeAppEUI[8]    = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+uint8_t nodeAppKey[16]   = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-static const u1_t PROGMEM APPEUI[8] = {
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x01
+// Set the region for LoRaWAN (EU868 for Europe, US915 for North America)
+DeviceClass_t  g_CurrentClass = CLASS_A;
+LoRaMacRegion_t g_CurrentRegion = LORAMAC_REGION_EU868;
+
+// Time between two transmissions (in milliseconds) - e.g., 60 seconds
+#define LORAWAN_APP_INTERVAL 30000 
+
+// Buffer to hold the payload data to send
+uint8_t m_lora_app_data_buffer[64];
+lmh_app_data_t m_lora_app_data = {m_lora_app_data_buffer, 0, 0, 0, 0};
+
+// Timer for scheduling the next transmission
+TimerEvent_t appTimer;
+
+// Function prototypes
+void send_lora_frame(void);
+void on_lorawan_has_joined_cb(void);
+void on_lorawan_rx_data_cb(lmh_app_data_t *app_data);
+void on_lorawan_confirm_class_cb(DeviceClass_t Class);
+void on_lorawan_join_failed_cb(void);
+
+// LoRaWAN event callbacks structure
+static lmh_callback_t lora_callbacks = {
+  BoardGetBatteryLevel,
+  BoardGetUniqueId,
+  BoardGetRandomSeed,
+  on_lorawan_rx_data_cb,
+  on_lorawan_has_joined_cb,
+  on_lorawan_confirm_class_cb,
+  on_lorawan_join_failed_cb
 };
 
-static const u1_t PROGMEM DEVEUI[8] = {
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x01
-};
+// =======================================================================
+// SETUP: Initializes serial, sensor, and LoRaWAN
+// =======================================================================
+void setup() {
+  // Initialize Serial for debugging
+  Serial.begin(115200);
+  time_t timeout = millis();
+  while (!Serial && (millis() - timeout < 5000)) delay(100); 
 
-static const u1_t PROGMEM APPKEY[16] = {
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x01
-};
+  Serial.println("=====================================");
+  Serial.println("WisBlock LoRaWAN Temperature Node");
+  Serial.println("=====================================");
 
+  // Initialize the I2C bus and the temperature sensor
+  Wire.begin();
+  if (mySHTC3.begin() != SHTC3_Status_Nominal) {
+    Serial.println("SHTC3 sensor initialization failed!");
+    while (1) delay(100); 
+  }
+  Serial.println("SHTC3 sensor initialized successfully.");
 
-// ============================================================
-// LMIC callbacks
-// ============================================================
+  // Initialize LoRaWAN setup
+  uint32_t err_code = lora_rak4630_init();
+  if (err_code != 0) {
+    Serial.printf("LoRaWAN init failed - Error: %d\n", err_code);
+    return;
+  }
 
-void os_getArtEui(u1_t* buf)
-{
-    memcpy_P(buf, APPEUI, 8);
+  // Setup LoRaWAN parameters
+  lmh_param_t lora_param_init = {
+    LORAWAN_ADR_ON,
+    DR_3,
+    LORAWAN_PUBLIC_NETWORK,
+    8,
+    LORAWAN_DEFAULT_TX_POWER,
+    LORAWAN_DUTYCYCLE_OFF
+  };
+
+  // Initialize the LoRaWAN stack
+  err_code = lmh_init(&lora_callbacks, lora_param_init, true, g_CurrentClass, g_CurrentRegion);
+  if (err_code != 0) {
+    Serial.printf("lmh_init failed - Error: %d\n", err_code);
+    return;
+  }
+
+  // Set the keys for OTAA activation
+  lmh_setDevEui(nodeDeviceEUI);
+  lmh_setAppEui(nodeAppEUI);
+  lmh_setAppKey(nodeAppKey);
+
+  // Initialize the timer for periodic transmission
+  TimerInit(&appTimer, send_lora_frame);
+  
+  Serial.println("Starting LoRaWAN join process...");
+  lmh_join();
 }
 
-void os_getDevEui(u1_t* buf)
-{
-    memcpy_P(buf, DEVEUI, 8);
+void loop() {
+  // Handle LoRaWAN events and timers
+  // Do NOT put heavy blocking code in loop() when using LoRaWAN
 }
 
-void os_getDevKey(u1_t* buf)
-{
-    memcpy_P(buf, APPKEY, 16);
+// =======================================================================
+// CALLBACK: Triggered when successfully connected to the network
+// =======================================================================
+void on_lorawan_has_joined_cb(void) {
+  Serial.println("Network Joined Successfully!");
+  send_lora_frame(); // Start sending data now that we are connected
 }
 
-
-// ============================================================
-// LoRa module pin configuration
-// ============================================================
-//
-// THIS IS AN EXAMPLE.
-//
-// You MUST change these pins according to your ESP32 +
-// LoRa module/board.
-//
-// For example, some boards use:
-//   NSS  = 5
-//   RST  = 14
-//   DIO0 = 26
-//   DIO1 = 33
-//   DIO2 = 32
-//
-// Check your board documentation.
-// ============================================================
-
-const lmic_pinmap lmic_pins = {
-    .nss = 5,
-    .rxtx = LMIC_UNUSED_PIN,
-    .rst = 14,
-    .dio = {26, 33, 32}
-};
-
-
-// ============================================================
-// Application configuration
-// ============================================================
-
-const unsigned TX_INTERVAL = 30; // Send one message every 30 seconds
-
-static osjob_t sendjob;
-
-
-// ============================================================
-// Send a LoRaWAN packet
-// ============================================================
-
-void do_send(osjob_t* j)
-{
-    // Check whether another transmission is currently pending.
-    if (LMIC.opmode & OP_TXRXPEND)
-    {
-        Serial.println("Transmission still pending...");
-    }
-    else
-    {
-        // Message to transmit.
-        static uint8_t payload[] = "Hello LoRaWAN!";
-
-        // Queue the packet.
-        //
-        // Port 1 is used by the application.
-        // The last parameter is 0 because we are not asking
-        // LMIC to confirm the packet at the application level.
-        LMIC_setTxData2(
-            1,
-            payload,
-            sizeof(payload) - 1,
-            0
-        );
-
-        Serial.println("Packet queued.");
-    }
-
-    // The next transmission will be scheduled after
-    // the current LoRaWAN transmission has completed.
+void on_lorawan_join_failed_cb(void) {
+  Serial.println("Network Join Failed. Will retry...");
+  lmh_join();
 }
 
-
-// ============================================================
-// LMIC event handler
-// ============================================================
-
-void onEvent(ev_t ev)
-{
-    Serial.print("LMIC event: ");
-
-    switch (ev)
-    {
-        case EV_JOINING:
-            Serial.println("EV_JOINING");
-            break;
-
-        case EV_JOINED:
-            Serial.println("EV_JOINED");
-
-            // Disable link check validation because some
-            // LoRaWAN networks do not provide it in the way
-            // LMIC expects.
-            LMIC_setLinkCheckMode(0);
-
-            // Send the first packet.
-            do_send(&sendjob);
-            break;
-
-        case EV_JOIN_FAILED:
-            Serial.println("EV_JOIN_FAILED");
-            break;
-
-        case EV_REJOIN_FAILED:
-            Serial.println("EV_REJOIN_FAILED");
-            break;
-
-        case EV_TXCOMPLETE:
-            Serial.println("EV_TXCOMPLETE");
-
-            // Check whether we received a downlink packet.
-            if (LMIC.txrxFlags & TXRX_ACK)
-            {
-                Serial.println("Received an ACK.");
-            }
-
-            if (LMIC.dataLen > 0)
-            {
-                Serial.print("Received downlink: ");
-
-                for (int i = 0; i < LMIC.dataLen; i++)
-                {
-                    Serial.printf(
-                        "%02X ",
-                        LMIC.frame[LMIC.dataBeg + i]
-                    );
-                }
-
-                Serial.println();
-            }
-
-            // Schedule the next transmission.
-            os_setTimedCallback(
-                &sendjob,
-                os_getTime() + sec2osticks(TX_INTERVAL),
-                do_send
-            );
-
-            break;
-
-        default:
-            Serial.println("Other event");
-            break;
-    }
+void on_lorawan_rx_data_cb(lmh_app_data_t *app_data) {
+  Serial.printf("DReceived data on port %d", app_data->port);
 }
 
-
-// ============================================================
-// Setup
-// ============================================================
-
-void setup()
-{
-    Serial.begin(115200);
-    delay(1000);
-
-    Serial.println();
-    Serial.println("================================");
-    Serial.println("ESP32 LoRaWAN example");
-    Serial.println("================================");
-
-    // Initialize LMIC.
-    os_init();
-
-    // Reset the LMIC state.
-    LMIC_reset();
-
-    // Configure the LoRaWAN region.
-    //
-    // For France, the usual regional configuration is EU868.
-    //
-    // The exact configuration depends on your LMIC version.
-    // For the MCCI LMIC library, EU868 is normally selected
-    // through the library's project configuration.
-    //
-    // Do not blindly copy regional settings from another
-    // country.
+void on_lorawan_confirm_class_cb(DeviceClass_t Class) {
+  Serial.printf("Class LoRaWAN Successful : %d\n", Class);
 }
 
+// =======================================================================
+// FUNCTION: Reads temperature and sends the LoRaWAN packet
+// =======================================================================
+void send_lora_frame(void) {
+  if (lmh_join_status_get() != LMH_SET) return; // Not joined, do nothing
 
-// ============================================================
-// Main loop
-// ============================================================
+  // 1. Read temperature and humidity from the sensor
+  mySHTC3.update();
+  float temp_c = mySHTC3.toDegC();
+  float humidity = mySHTC3.toPercent();
 
-void loop()
-{
-    // LMIC is event-driven.
-    //
-    // This function processes pending LoRaWAN events such as:
-    // - joining
-    // - transmission
-    // - reception
-    // - acknowledgements
-    os_runloop_once();
+  Serial.printf("Temperature: %.2f °C, Humidity: %.2f %%\n", temp_c, humidity);
+
+  // 2. Prepare the payload (data to send)
+  // We multiply by 100 and send as integers to avoid sending heavy floating point numbers
+  uint16_t temp_int = (uint16_t)(temp_c * 100);
+  uint16_t hum_int = (uint16_t)(humidity * 100);
+
+  // Reset payload size
+  m_lora_app_data.buffsize = 0;
+  m_lora_app_data.port = 2; // Arbitrary application port
+
+  // Add temperature data to payload (2 bytes)
+  m_lora_app_data.buffer[m_lora_app_data.buffsize++] = (temp_int >> 8) & 0xFF; // High byte
+  m_lora_app_data.buffer[m_lora_app_data.buffsize++] = temp_int & 0xFF;        // Low byte
+
+  // Add humidity data to payload (2 bytes)
+  m_lora_app_data.buffer[m_lora_app_data.buffsize++] = (hum_int >> 8) & 0xFF;  // High byte
+  m_lora_app_data.buffer[m_lora_app_data.buffsize++] = hum_int & 0xFF;         // Low byte
+
+  // 3. Send the packet
+  lmh_error_status error = lmh_send(&m_lora_app_data, LMH_UNCONFIRMED_MSG);
+  
+  if (error == LMH_SUCCESS) {
+    Serial.println("Packet sent to network.");
+  } else {
+    Serial.printf("Failed to send packet - Error: %d\n", error);
+  }
+
+  // 4. Schedule the next transmission
+  TimerSetValue(&appTimer, LORAWAN_APP_INTERVAL);
+  TimerStart(&appTimer);
 }
