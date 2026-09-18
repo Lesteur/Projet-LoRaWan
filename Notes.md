@@ -25,7 +25,7 @@
 
 1. Se connecter
 
-   1. Aller sur le site [HeyloT Console][https://console.helium-iot.xyz].
+   1. Aller sur le site [HeyloT Console](https://console.helium-iot.xyz).
 2. Créer un Device Profile
 
    1. Aller dans **Device Profiles**.
