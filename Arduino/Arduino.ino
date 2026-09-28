@@ -123,7 +123,7 @@ void on_lorawan_join_failed_cb(void) {
 }
 
 void on_lorawan_rx_data_cb(lmh_app_data_t *app_data) {
-  Serial.printf("DReceived data on port %d", app_data->port);
+  Serial.printf("Received data on port %d\n", app_data->port);
 }
 
 void on_lorawan_confirm_class_cb(DeviceClass_t Class) {
