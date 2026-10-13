@@ -208,7 +208,7 @@ void setup()
 
     Serial.println("Initializing LoRaWAN hardware...");
 
-    uint32_t err_code = lora_rak4630_init();
+    uint32_t err_code = lora_rak11300_init();
 
     if (err_code != 0)
     {

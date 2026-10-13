@@ -11,15 +11,22 @@
 
    1. Aller dans **Outils > Type de carte > Gestionnaire de cartes**.
    2. Dans la barre de recherche, taper `RAKwireless`.
-   3. Installer le paquet **RAKwireless nRF Boards**.
+   3. Installer le paquet **RAKwireless RP Boards**.
 3. Sélectionner la carte
 
-   1. Aller **dans Outils > Type de carte** et sélectionner **WisBlock RAK4631**.
+   1. Aller **dans Outils > Type de carte** et sélectionner **WisBlock RAK11300**.
 4. Installer les bibliothèques nécessaires
 
    1. Aller dans **Croquis > Inclure une bibliothèque > Gérer les bibliothèques**.
    2. Chercher et installer la bibliothèque pour le LoRaWAN : **SX126x-Arduino**.
    3. Chercher et installer la bibliothèque pour le capteur de température : **SparkFun SHTC3 Humidity and Temperature Sensor**.
+5. Téléverser le code
+
+   1. Connecter la carte.
+   2. Bootloader la carte.
+   3. Uploader le code.
+   4. Repérer le nouveau COM sur lequel s'est positionné la carte.
+   5. Vous pouvez vérifier en utilisant le **Serial Monitor**.
 
 ## Configuration de HeyloT Console
 
