@@ -1,2 +1,2 @@
+chirpstack-api
 requests
-python-dotenv
