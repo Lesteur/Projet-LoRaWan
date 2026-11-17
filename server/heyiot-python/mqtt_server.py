@@ -18,12 +18,12 @@ MQTT_CLIENT_ID = os.getenv("MQTT_CLIENT_ID", "adam_florian_christophe")
 MQTT_USERNAME = os.getenv("MQTT_USERNAME", "HelloDisk91")
 MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "123")
 
-MQTT_TOPIC = os.getenv("MQTT_TOPIC", "ChristopheFlorianAdam/{{device_id}}/dw")
+MQTT_TOPIC = os.getenv("MQTT_TOPIC", "ChristopheFlorianAdam/#")
 
 MQTT_KEEPALIVE = 60
 
 # TLS configuration
-MQTT_USE_TLS = True
+MQTT_USE_TLS = False
 
 # Optional path to a custom Certificate Authority certificate
 MQTT_CA_CERT = os.getenv("MQTT_CA_CERT")
